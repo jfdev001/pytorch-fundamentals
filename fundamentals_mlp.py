@@ -38,7 +38,6 @@ class RandomNormalDataset(Dataset):
             samples: int = 128,
             x_dims: int = 4,
             y_dims: int = 1,
-            seed: int = 0,
             regression: bool = True,
             **kwargs):
         """Define state for RandomNormalDataset.
@@ -47,7 +46,6 @@ class RandomNormalDataset(Dataset):
             samples: Number of samples
             x_dims: Dimensions for inputs.
             y_dims: Dimensions for labels.
-            seed: Random seed.
             regression: True for real labels, else integer labels.
         """
 
@@ -56,9 +54,6 @@ class RandomNormalDataset(Dataset):
 
         # Save args
         self.samples = samples
-
-        # Set seed
-        torch.manual_seed(seed)
 
         # Define real inputs
         self.inputs = torch.rand(size=(samples, x_dims), requires_grad=False)
@@ -101,7 +96,6 @@ class MLP(LightningModule):
             samples: int = 128,
             batch_size: int = 32,
             max_epochs: int = 2,
-            seed: int = 0,
             num_hidden_layers: int = 1,
             hidden_units: int = 32,
             learning_rate: float = 1e-3,
@@ -126,7 +120,6 @@ class MLP(LightningModule):
         self.regression = regression
         self.num_hidden_layers = num_hidden_layers
         self.samples = samples
-        self.seed = seed
         self.batch_size = batch_size
         self.max_epochs = max_epochs
         self.learning_rate = learning_rate
@@ -222,7 +215,6 @@ class MLP(LightningModule):
             samples=self.samples,
             x_dims=self.x_dims,
             y_dims=self.y_dims,
-            seed=self.seed,
             regression=self.regression)
 
         self._train_dataloader = DataLoader(
@@ -241,7 +233,6 @@ class MLP(LightningModule):
             samples=self.samples,
             x_dims=self.x_dims,
             y_dims=self.y_dims,
-            seed=self.seed,
             regression=self.regression)
 
         self._test_dataloader = DataLoader(
@@ -326,6 +317,9 @@ def main():
     # CLI
     parser = cli(description='cli for pytorch fundamentals')
     args = parser.parse_args()
+
+    # Set random seed
+    torch.manual_seed(args.seed)
 
     # # Get keys of trainer so that those can be ignored...
     # action_groups = parser._action_groups
