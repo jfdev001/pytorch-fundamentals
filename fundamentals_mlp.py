@@ -22,7 +22,7 @@ from distutils.util import strtobool
 import os
 from typing import Callable, List
 
-from pytorch_lightning import LightningModule, Trainer
+from pytorch_lightning import LightningModule, Trainer, seed_everything
 
 import torch
 from torch import nn, Tensor
@@ -318,8 +318,8 @@ def main():
     parser = cli(description='cli for pytorch fundamentals')
     args = parser.parse_args()
 
-    # Set random seed
-    torch.manual_seed(args.seed)
+    # Set random seed globally
+    seed_everything(args.seed)
 
     # # Get keys of trainer so that those can be ignored...
     # action_groups = parser._action_groups
@@ -341,7 +341,8 @@ def main():
 
     # Instantiate trainer for abstracting model fitting
     gpus = torch.cuda.device_count()
-    trainer = Trainer(max_epochs=model.max_epochs, gpus=gpus, callbacks=None)
+    trainer = Trainer(max_epochs=model.max_epochs,
+                      gpus=gpus, callbacks=None)
 
     # Train model
     trainer.fit(
