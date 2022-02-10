@@ -42,8 +42,7 @@ class RandomNormalDataset(Dataset):
 
         # Define real inputs
         # NOTE: Gradient requirements??? I think no
-        # because think about this grad descent is
-        # dC/dW or dC/dBias
+        # because grad descent is dC/dW or dC/dBias
         self.inputs = torch.rand(size=(samples, x_dims), requires_grad=False)
 
         # Define labels
@@ -59,7 +58,7 @@ class RandomNormalDataset(Dataset):
     def __len__(self):
         return self.samples
 
-    def __get_item(self, idx: int):
+    def __getitem__(self, idx: int):
         input_at_idx = self.inputs[idx]
         label_at_idx = self.labels[idx]
         return input_at_idx, label_at_idx
