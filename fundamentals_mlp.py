@@ -1,8 +1,7 @@
-"""Script for PyTorch Model of Random Data.
+"""Script for PyTorch/PyTorchLightning Model of random data.
 
 * https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html
 * https://pytorch.org/tutorials/beginner/basics/intro.html
-* 
 * Cross Entropy for PyTorch expects label encoded vectors,
 same as SparseCategoricalCross entropy in TensorFlow.
 * Logits are more numerically stable and should be used in network training
@@ -13,13 +12,11 @@ import argparse
 from distutils.util import strtobool
 import os
 from typing import Callable, List
-from numpy import dtype
 
 from pytorch_lightning import LightningModule, Trainer
 
 import torch
 from torch import nn, Tensor
-from torch.nn import Module
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
