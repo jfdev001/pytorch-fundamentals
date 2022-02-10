@@ -1,10 +1,11 @@
-"""Script for PyTorch Model of Random Data"""
+"""Script for PyTorch Model of Random Data.
+
+NOTE: Cross Entropy for PyTorch expects label encoded vectors,
+same as SparseCategoricalCross entropy in TensorFlow.
+"""
 
 import argparse
-from ast import parse
 from distutils.util import strtobool
-
-import numpy as np
 
 import torch
 from torch import nn
@@ -38,7 +39,7 @@ class RandomNormalDataset(Dataset):
         self.samples = samples
 
         # Set seed
-        np.random.seed(seed)
+        torch.manual_seed(seed)
 
         # Define real inputs
         # NOTE: Gradient requirements??? I think no
@@ -67,13 +68,68 @@ class RandomNormalDataset(Dataset):
 class MLP(nn.Module):
     """Multilayer Perceptron."""
 
-    def __init__(self, ):
+    def __init__(
+            self,
+            x_dims: int,
+            y_dims: int,
+            regression: bool = True,
+            onehot: bool = False,
+            num_hidden_layers: int = 1,
+            hidden_units: int = 32,):
         """Define state for MLP."""
-        pass
+
+        # Save args
+        self.num_hidden_layers = num_hidden_layers
+
+        # Required inheritance
+        super().__init__()
+
+        # Initial hidden lyaer
+        self.init_hidden = nn.Sequential(
+            nn.Linear(in_features=x_dims, out_features=hidden_units),
+            nn.ReLU())
+
+        # Deeper hidden net
+        if num_hidden_layers > 1:
+            linear_relu_modules = []
+
+            for lyr in range(num_hidden_layers - 1):
+                linear_relu_modules.append(nn.Linear(
+                    in_features=hidden_units, out_features=hidden_units))
+                linear_relu_modules.append(nn.ReLU())
+
+            self.linear_relu_stack = nn.Sequential(*linear_relu_modules)
+
+        # Output layer
+        if not regression and y_dims == 2:
+            self.output_layer = nn.Sequential(
+                nn.Linear(in_features=hidden_units, out_features=1),
+                nn.Sigmoid())
+        else:
+            self.output_layer = nn.Sequential(
+                nn.Linear(in_features=hidden_units, out_features=y_dims),)
 
     def forward(self, x):
-        """Forward pass."""
-        pass
+        """Forward pass.
+
+        Args:
+            x: Inputs to neural network of shape (m_samples, n_dims)
+        Returns:
+            Predictions.
+        """
+
+        # Initial projection
+        hidden_proj = self.init_hidden(x)
+
+        # Deeper projection
+        if self.num_hidden_layers > 1:
+            hidden_proj = self.linear_relu_stack(hidden_proj)
+
+        # Output projection
+        preds = self.output_layer(hidden_proj)
+
+        # Result of forward computation
+        return preds
 
 
 def cli(description: str):
@@ -93,6 +149,10 @@ def cli(description: str):
         type=int,
         default=1)
     parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=32)
+    parser.add_argument(
         '--seed',
         type=int,
         default=0)
@@ -106,6 +166,14 @@ def cli(description: str):
         choices=[True, False],
         type=lambda x: bool(strtobool(x)),
         default=False)
+    parser.add_argument(
+        '--hidden-units',
+        type=int,
+        default=32)
+    parser.add_argument(
+        '--num-hidden-layers',
+        type=int,
+        default=1)
     return parser
 
 
@@ -115,17 +183,28 @@ def main():
     parser = cli(description='cli for pytorch fundamentals')
     args = parser.parse_args()
 
+    # Args for data
+    data_args = {k: v for k, v in vars(args).items() if k not in [
+        'hidden_units', 'num_hidden_layers', 'batch_size']}
+
+    # Args for model
+    model_args = {k: v for k, v in vars(args).items() if k not in [
+        'samples', 'batch_size', 'seed']}
+
     # Instantiate data
-    training_data = RandomNormalDataset(**vars(args))
+    training_data = RandomNormalDataset(**data_args)
     train_dataloader = DataLoader(
-        training_data, batch_size=32, shuffle=True)
+        training_data, batch_size=args.batch_size, shuffle=True)
 
     test_data = RandomNormalDataset()
     test_dataloader = DataLoader(
-        test_data, batch_size=32, shuffle=True)
+        test_data, batch_size=args.batch_size, shuffle=True)
 
-    # Define device
+    # Define gpu/cpu device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # Instantiate network
+    model = MLP(**model_args).to(device=device)
 
 
 if __name__ == '__main__':
