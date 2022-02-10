@@ -1,14 +1,20 @@
-"""Script for PyTorch/PyTorchLightning Model of random data.
+"""Script for PyTorch/PyTorchLightning model of random data.
 
+Main Docs/Tutorials:
 * https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html
 * https://pytorch.org/tutorials/beginner/basics/intro.html
+
+Other Docs:
+* hparam and argparse: https://pytorch-lightning.readthedocs.io/en/latest/common/hyperparameters.html
+
+Notes:
 * Cross Entropy for PyTorch expects label encoded vectors,
 same as SparseCategoricalCross entropy in TensorFlow.
 * Logits are more numerically stable and should be used in network training
-Why?
 """
 
 import argparse
+from argparse import ArgumentParser
 from distutils.util import strtobool
 import os
 from typing import Callable, List
@@ -33,7 +39,7 @@ class RandomNormalDataset(Dataset):
             regression: bool = True,
             onehot: bool = False,
             **kwargs):
-        """Define state for RandomNormalDataset
+        """Define state for RandomNormalDataset.
 
         Args:
             samples: Number of samples
@@ -93,20 +99,32 @@ class MLP(LightningModule):
             self,
             x_dims: int,
             y_dims: int,
-            loss_fn: Callable,
             regression: bool = True,
-            onehot: bool = False,
             num_hidden_layers: int = 1,
             hidden_units: int = 32,
+            save_hparams: bool = True,
             **kwargs):
         """Define state for MLP."""
 
         # Required inheritance
         super().__init__(**kwargs)
 
+        # Set loss function based on cur hyperparameters
+        if not regression and y_dims == 2:
+            self.loss_fn = nn.BCEWithLogitsLoss()
+        elif not regression:
+            self.loss_fn = nn.CrossEntropyLoss()
+        else:
+            self.loss_fn = nn.MSELoss()
+
         # Save args
         self.num_hidden_layers = num_hidden_layers
-        self.loss_fn = loss_fn
+
+        # Save hparams or not
+        # NOTE: Must be serializable args... so Callables and custom objs
+        # probably aren't good
+        if save_hparams:
+            self.save_hyperparameters()
 
         # Initial hidden lyaer
         self.init_hidden = nn.Sequential(
@@ -170,6 +188,30 @@ class MLP(LightningModule):
         self.log('val_loss', loss)
         return None
 
+    @staticmethod
+    def add_model_specific_args(
+            parent_parser: ArgumentParser) -> ArgumentParser:
+        """Adds model specific arguments to CLI object."""
+        parser = parent_parser.add_argument_group(
+            'MLP',
+            'params for multilayer perceptron model only')
+
+        parser.add_argument(
+            '--hidden-units',
+            type=int,
+            default=32)
+        parser.add_argument(
+            '--num-hidden-layers',
+            type=int,
+            default=1)
+        parser.add_argument(
+            '--save-hparams',
+            choices=[True, False],
+            type=lambda x: bool(strtobool(x)),
+            default=False)
+
+        return parent_parser
+
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
 
@@ -207,19 +249,6 @@ def cli(description: str):
         choices=[True, False],
         type=lambda x: bool(strtobool(x)),
         default=True)
-    parser.add_argument(
-        '--onehot',
-        choices=[True, False],
-        type=lambda x: bool(strtobool(x)),
-        default=False)
-    parser.add_argument(
-        '--hidden-units',
-        type=int,
-        default=32)
-    parser.add_argument(
-        '--num-hidden-layers',
-        type=int,
-        default=1)
     return parser
 
 
@@ -260,16 +289,8 @@ def main():
     # print(batch_1_t.size())
     # breakpoint()
 
-    # Set loss function based on cli
-    if not args.regression and args.y_dims == 2:
-        loss_fn = nn.BCEWithLogitsLoss()
-    elif not args.regression:
-        loss_fn = nn.CrossEntropyLoss()
-    else:
-        loss_fn = nn.MSELoss()
-
     # Instantiate network
-    model = MLP(loss_fn=loss_fn, **model_args)
+    model = MLP(**model_args)
 
     # Instantiate trainer for abstracting model fitting
     gpus = torch.cuda.device_count()

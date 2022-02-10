@@ -1,0 +1,6 @@
+hidden_units: 32
+num_hidden_layers: 1
+regression: true
+save_hparams: true
+x_dims: 4
+y_dims: 1
