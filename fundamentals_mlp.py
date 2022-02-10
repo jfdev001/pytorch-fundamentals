@@ -204,6 +204,19 @@ class MLP(LightningModule):
         self.log('val_loss', loss)
         return None
 
+    def test_step(
+            self, test_batch: List[Tensor], batch_idx: int) -> None:
+        """Forward pass and loss on a batch of test data.
+
+        Must be implemented for `trainer.test`
+        """
+
+        x, y = test_batch
+        y_hat = self(x)
+        loss = self.loss_fn(y_hat, y)
+        self.log('val_loss', loss)
+        return None
+
     def configure_optimizers(self) -> Callable:
         return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
 
