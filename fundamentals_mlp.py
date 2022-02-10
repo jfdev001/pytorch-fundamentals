@@ -91,8 +91,7 @@ class RandomNormalDataset(Dataset):
 class MLP(LightningModule):
     """Multilayer Perceptron.
 
-    NOTE: Could use a regular `nn.Module` here, but the
-    `pl.LightningModule` is more well-organized and is akin to keras.
+    Encapsulates both training steps and random data creation.
     """
 
     def __init__(
@@ -100,8 +99,13 @@ class MLP(LightningModule):
             x_dims: int,
             y_dims: int,
             regression: bool = True,
+            samples: int = 128,
+            batch_size: int = 32,
+            max_epochs: int = 2,
+            seed: int = 0,
             num_hidden_layers: int = 1,
             hidden_units: int = 32,
+            learning_rate: float = 1e-3,
             save_hparams: bool = True,
             **kwargs):
         """Define state for MLP."""
@@ -118,7 +122,23 @@ class MLP(LightningModule):
             self.loss_fn = nn.MSELoss()
 
         # Save args
+        self.x_dims = x_dims
+        self.y_dims = y_dims
+        self.regression = regression
         self.num_hidden_layers = num_hidden_layers
+        self.samples = samples
+        self.seed = seed
+        self.batch_size = batch_size
+        self.max_epochs = max_epochs
+        self.learning_rate = learning_rate
+
+        # Set num workers attr
+        self.num_workers = os.cpu_count()
+
+        # Set data
+        self.train_data_loader = None
+        self.test_data_loader = None
+        self._init_dataloaders()
 
         # Save hparams or not
         # NOTE: Must be serializable args... so Callables and custom objs
@@ -174,6 +194,8 @@ class MLP(LightningModule):
 
     def training_step(
             self, train_batch: List[Tensor], batch_idx: int) -> Tensor:
+        """Forward pass and loss on a batch of training data."""
+
         x, y = train_batch
         y_hat = self(x)
         loss = self.loss_fn(y_hat, y)
@@ -182,20 +204,61 @@ class MLP(LightningModule):
 
     def validation_step(
             self, val_batch: List[Tensor], batch_idx: int) -> None:
+        """Forward pass and loss on a batch of validation data."""
+
         x, y = val_batch
         y_hat = self(x)
         loss = self.loss_fn(y_hat, y)
         self.log('val_loss', loss)
         return None
 
+    def configure_optimizers(self) -> Callable:
+        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+
+    def _init_dataloaders(self) -> None:
+        """Creates dataloaders for use with `pl.Trainer` later."""
+
+        # Instantiate training data
+        training_data = RandomNormalDataset(
+            samples=self.samples,
+            x_dims=self.x_dims,
+            y_dims=self.y_dims,
+            seed=self.seed,
+            regression=self.regression)
+
+        self._train_dataloader = DataLoader(
+            training_data,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=self.num_workers//2)
+
+        # Shuffle in validation data loader set to false per recommendations
+        # of pytorch... reproducibility presumably since order of
+        # testing here doesn't matter... model set to inference mode (i.e.,
+        # no parameter updates)
+        # so independent, and identical distributed (iid) assumption
+        # not needed for grad descent
+        test_data = RandomNormalDataset(
+            samples=self.samples,
+            x_dims=self.x_dims,
+            y_dims=self.y_dims,
+            seed=self.seed,
+            regression=self.regression)
+
+        self._test_dataloader = DataLoader(
+            test_data,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers//2)
+
     @staticmethod
     def add_model_specific_args(
             parent_parser: ArgumentParser) -> ArgumentParser:
         """Adds model specific arguments to CLI object."""
+
         parser = parent_parser.add_argument_group(
             'MLP',
             'params for multilayer perceptron model')
-
         parser.add_argument(
             '--x-dims',
             type=int,
@@ -204,6 +267,18 @@ class MLP(LightningModule):
             '--y-dims',
             type=int,
             default=1)
+        parser.add_argument(
+            '--batch-size',
+            type=int,
+            default=32)
+        parser.add_argument(
+            '--max-epochs',
+            type=int,
+            default=2)
+        parser.add_argument(
+            '--seed',
+            type=int,
+            default=0)
         parser.add_argument(
             '--regression',
             choices=[True, False],
@@ -218,15 +293,16 @@ class MLP(LightningModule):
             type=int,
             default=1)
         parser.add_argument(
+            '--learning-rate',
+            type=float,
+            default=1e-3)
+        parser.add_argument(
             '--save-hparams',
             choices=[True, False],
             type=lambda x: bool(strtobool(x)),
-            default=False)
+            default=True)
 
         return parent_parser
-
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=1e-3)
 
 
 def cli(description: str):
@@ -236,22 +312,6 @@ def cli(description: str):
     """
 
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument(
-        '--samples',
-        type=int,
-        default=128)
-    parser.add_argument(
-        '--batch-size',
-        type=int,
-        default=32)
-    parser.add_argument(
-        '--max-epochs',
-        type=int,
-        default=2)
-    parser.add_argument(
-        '--seed',
-        type=int,
-        default=0)
 
     # # Add trainer args to the parser
     # parser = Trainer.add_argparse_args(parser)
@@ -283,47 +343,18 @@ def main():
     #         bad_keys = list(group_dict.keys())
     #     group_ix += 1
 
-    # Args for data...
-    # ignore those keys in the args namespace belonging to the trainer
-    # and to some keys of the model
-    data_args = {k: v for k, v in vars(args).items() if k not in [
-        'max_epochs', 'batch_size', 'save_hparams', 'num_hidden_layers', 'hidden_units']}
-
-    # Instantiate data
-    # NOTE: Num workers must be spread out across data loading
-    num_workers = os.cpu_count()
-    training_data = RandomNormalDataset(**data_args)
-    train_dataloader = DataLoader(
-        training_data, batch_size=args.batch_size, shuffle=True,
-        num_workers=num_workers//2)
-
-    # Shuffle in validation data loader set to false per recommendations
-    # of pytorch
-    test_data = RandomNormalDataset(**data_args)
-    test_dataloader = DataLoader(
-        test_data,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=num_workers//2)
-
-    # # Inspect data loader data
-    # batch_1_f, batch_1_t = next(iter(train_dataloader))
-    # print(batch_1_f.size())
-    # print(batch_1_t.size())
-    # breakpoint()
-
     # Instantiate network
     model = MLP(**vars(args))
 
     # Instantiate trainer for abstracting model fitting
     gpus = torch.cuda.device_count()
-    trainer = Trainer(max_epochs=args.max_epochs, gpus=gpus, callbacks=None)
+    trainer = Trainer(max_epochs=model.max_epochs, gpus=gpus, callbacks=None)
 
     # Train model
     trainer.fit(
         model,
-        train_dataloaders=train_dataloader,
-        val_dataloaders=test_dataloader,)
+        train_dataloaders=model._train_dataloader,
+        val_dataloaders=model._test_dataloader,)
 
 
 if __name__ == '__main__':
