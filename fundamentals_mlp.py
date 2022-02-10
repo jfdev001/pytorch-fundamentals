@@ -21,7 +21,6 @@ from argparse import ArgumentParser
 from distutils.util import strtobool
 import os
 from typing import Callable, List
-from matplotlib.pyplot import get
 
 from pytorch_lightning import LightningModule, Trainer
 
