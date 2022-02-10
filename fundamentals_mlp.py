@@ -1,5 +1,8 @@
 """Script for PyTorch/PyTorchLightning model of random data.
 
+NOTE: Could remove the `**data_args` logic by just making the
+data an field of the model itself.
+
 Main Docs/Tutorials:
 * https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html
 * https://pytorch.org/tutorials/beginner/basics/intro.html
@@ -18,6 +21,7 @@ from argparse import ArgumentParser
 from distutils.util import strtobool
 import os
 from typing import Callable, List
+from matplotlib.pyplot import get
 
 from pytorch_lightning import LightningModule, Trainer
 
@@ -37,7 +41,6 @@ class RandomNormalDataset(Dataset):
             y_dims: int = 1,
             seed: int = 0,
             regression: bool = True,
-            onehot: bool = False,
             **kwargs):
         """Define state for RandomNormalDataset.
 
@@ -47,7 +50,6 @@ class RandomNormalDataset(Dataset):
             y_dims: Dimensions for labels.
             seed: Random seed.
             regression: True for real labels, else integer labels.
-            onehot: True for one hotting labels, false otherwise.
         """
 
         # Inheritance
@@ -60,8 +62,6 @@ class RandomNormalDataset(Dataset):
         torch.manual_seed(seed)
 
         # Define real inputs
-        # NOTE: Gradient requirements??? I think no
-        # because grad descent is dC/dW or dC/dBias
         self.inputs = torch.rand(size=(samples, x_dims), requires_grad=False)
 
         # Define labels
@@ -75,9 +75,9 @@ class RandomNormalDataset(Dataset):
                 size=(samples, 1),
                 requires_grad=False,
                 dtype=torch.float32)
-            if onehot:
-                self.labels = F.one_hot(
-                    self.labels, num_classes=y_dims).type(torch.float32)
+            # if onehot:
+            #     self.labels = F.one_hot(
+            #         self.labels, num_classes=y_dims).type(torch.float32)
 
     def __len__(self):
         return self.samples
@@ -91,7 +91,7 @@ class RandomNormalDataset(Dataset):
 class MLP(LightningModule):
     """Multilayer Perceptron.
 
-    NOTE: Could use a regular `nn.Module` here, but the 
+    NOTE: Could use a regular `nn.Module` here, but the
     `pl.LightningModule` is more well-organized and is akin to keras.
     """
 
@@ -194,8 +194,21 @@ class MLP(LightningModule):
         """Adds model specific arguments to CLI object."""
         parser = parent_parser.add_argument_group(
             'MLP',
-            'params for multilayer perceptron model only')
+            'params for multilayer perceptron model')
 
+        parser.add_argument(
+            '--x-dims',
+            type=int,
+            default=4)
+        parser.add_argument(
+            '--y-dims',
+            type=int,
+            default=1)
+        parser.add_argument(
+            '--regression',
+            choices=[True, False],
+            type=lambda x: bool(strtobool(x)),
+            default=True)
         parser.add_argument(
             '--hidden-units',
             type=int,
@@ -217,21 +230,16 @@ class MLP(LightningModule):
 
 
 def cli(description: str):
-    """Command line interface for fundamentals of pytorch."""
+    """Command line interface for fundamentals of pytorch.
+
+    https://pytorch-lightning.readthedocs.io/en/latest/common/hyperparameters.html
+    """
 
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         '--samples',
         type=int,
         default=128)
-    parser.add_argument(
-        '--x-dims',
-        type=int,
-        default=4)
-    parser.add_argument(
-        '--y-dims',
-        type=int,
-        default=1)
     parser.add_argument(
         '--batch-size',
         type=int,
@@ -244,11 +252,13 @@ def cli(description: str):
         '--seed',
         type=int,
         default=0)
-    parser.add_argument(
-        '--regression',
-        choices=[True, False],
-        type=lambda x: bool(strtobool(x)),
-        default=True)
+
+    # # Add trainer args to the parser
+    # parser = Trainer.add_argparse_args(parser)
+
+    # Add model args to parser
+    parser = MLP.add_model_specific_args(parser)
+
     return parser
 
 
@@ -258,13 +268,26 @@ def main():
     parser = cli(description='cli for pytorch fundamentals')
     args = parser.parse_args()
 
-    # Args for data
-    data_args = {k: v for k, v in vars(args).items() if k not in [
-        'hidden_units', 'num_hidden_layers', 'batch_size', 'max_epochs']}
+    # # Get keys of trainer so that those can be ignored...
+    # action_groups = parser._action_groups
+    # num_groups = len(action_groups)
+    # trainer_args_not_found = True
+    # group_ix = 0
+    # bad_keys = []
+    # while trainer_args_not_found and group_ix < num_groups:
+    #     group = action_groups[group_ix]
+    #     if group.title == 'pl.Trainer':
+    #         trainer_args_not_found = False
+    #         group_dict = {a.dest: getattr(args, a.dest, None)
+    #                       for a in group._group_actions}
+    #         bad_keys = list(group_dict.keys())
+    #     group_ix += 1
 
-    # Args for model
-    model_args = {k: v for k, v in vars(args).items() if k not in [
-        'samples', 'batch_size', 'seed', 'max_epochs']}
+    # Args for data...
+    # ignore those keys in the args namespace belonging to the trainer
+    # and to some keys of the model
+    data_args = {k: v for k, v in vars(args).items() if k not in [
+        'max_epochs', 'batch_size', 'save_hparams', 'num_hidden_layers', 'hidden_units']}
 
     # Instantiate data
     # NOTE: Num workers must be spread out across data loading
@@ -290,11 +313,11 @@ def main():
     # breakpoint()
 
     # Instantiate network
-    model = MLP(**model_args)
+    model = MLP(**vars(args))
 
     # Instantiate trainer for abstracting model fitting
     gpus = torch.cuda.device_count()
-    trainer = Trainer(max_epochs=args.max_epochs, gpus=gpus)
+    trainer = Trainer(max_epochs=args.max_epochs, gpus=gpus, callbacks=None)
 
     # Train model
     trainer.fit(
